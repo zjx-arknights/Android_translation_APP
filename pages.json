@@ -1,0 +1,41 @@
+{
+  "pages": [
+	{
+	    "path": "pages/need/load",
+	    "style": {
+	     "navigationBarTitleText": "欢迎使用BabelBreak"
+	}
+	},
+    {
+      "path": "pages/home/home",
+      "style": {
+        "navigationBarTitleText": "首页"
+      }
+    },
+    {
+      "path": "pages/voice/voice",
+      "style": {
+        "navigationBarTitleText": "语音翻译"
+      }
+    },
+    {
+      "path": "pages/image/image",
+      "style": {
+        "navigationBarTitleText": "图像识别"
+      }
+    },
+    {
+      "path": "pages/history/history",
+      "style": {
+        "navigationBarTitleText": "历史记录"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "uni-app",
+    "navigationBarBackgroundColor": "#F8F8F8",
+    "backgroundColor": "#F8F8F8"
+  },
+  "uniIdRouter": {}
+}
