@@ -122,8 +122,12 @@ export default {
 	components: {
 	  bottom,  // 在 components 中注册组件
 	},
+	mounted() {
+	  this.refreshHistory();
+	},
   data() {
     return {
+		translationHistory: uni.getStorageSync('translationHistory'),
       searchText: '',
       currentPage: 1,
       itemsPerPage: 10,
@@ -208,6 +212,8 @@ export default {
     }
   },
   methods: {
+	  refreshHistory() {
+	      this.translationHistory = uni.getStorageSync('translationHistory') || [];},
     searchHistory() {
       this.currentPage = 1; // 搜索时重置到第一页
     },

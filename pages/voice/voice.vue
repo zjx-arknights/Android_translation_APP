@@ -1,4 +1,5 @@
 <template>
+  <!-- 模板部分保持不变 -->
   <view class="container">
     <!-- 顶部翻译结果显示区域 -->
     <view class="result-container">
@@ -45,7 +46,7 @@
         <picker mode="selector" :range="languageList" range-key="name" @change="onLanguageChange">
           <view class="picker">
             <text>翻译为: {{ targetLanguage }}</text>
-            <uni-icons type="arrowdown" size="16"></uni-icons>
+            <!-- <uni-icons type="arrowdown" size="16"></uni-icons> -->
           </view>
         </picker>
       </view>
@@ -55,18 +56,18 @@
     <view class="recording-animation" v-if="isRecording">
       <view class="wave" v-for="(item, index) in 5" :key="index" :style="{ height: getRandomHeight() + 'px' }"></view>
     </view>
-	<bottom :currentTab="'voice'" />
+    <bottom :currentTab="'voice'" />
   </view>
 </template>
 
-<script>	
+<script>
 import bottom from '../need/bottom.vue';
 
 export default {
-	  components: {
-	    bottom
-	  },
-	
+  components: {
+    bottom
+  },
+  
   data() {
     return {
       isRecording: false,
@@ -84,7 +85,8 @@ export default {
         { name: '西班牙语', code: 'es' },
       ],
       selectedLangIndex: 0,
-      recorderManager: null
+      recorderManager: null,
+      tempFilePath: '' // 用于存储录音临时文件路径
     }
   },
   mounted() {
@@ -95,9 +97,10 @@ export default {
       console.log('录音开始');
     });
     
-    this.recorderManager.onStop((res) => {
+    this.recorderManager.onStop(async (res) => {
       console.log('录音结束', res);
-      this.handleRecordingResult(res);
+      this.tempFilePath = res.tempFilePath;
+      await this.handleRecordingResult(res);
     });
     
     this.recorderManager.onError((res) => {
@@ -115,9 +118,13 @@ export default {
       this.originalText = '';
       this.translatedText = '';
       
-      // 开始录音
+      // 开始录音，设置符合百度API要求的参数
       this.recorderManager.start({
-        format: 'mp3',
+        format: 'wav', // 使用wav格式，百度API推荐
+        sampleRate: 16000, // 16kHz采样率
+        numberOfChannels: 1, // 单声道
+        encodeBitRate: 256000, // 编码比特率
+        frameSize: 4, // 帧大小
         duration: 60000 // 最长60秒
       });
     },
@@ -127,42 +134,100 @@ export default {
       this.recorderManager.stop();
     },
     
-    handleRecordingResult(res) {
-      // 这里应该是调用语音识别API的代码
-      // 模拟识别结果
-      setTimeout(() => {
-        this.originalText = '这是一个测试语音识别的结果';
-        this.originalLanguage = '中文';
+async handleRecordingResult(res) {
+    try {
+        uni.showLoading({ title: '翻译中...' });
         
-        // 模拟翻译结果
-        this.translateText();
-      }, 1000);
-    },
-    
-    translateText() {
-      // 这里应该是调用翻译API的代码
-      // 模拟翻译结果
-      const translations = {
-        'en': 'This is a test result of speech recognition',
-        'zh': '这是一个测试语音识别的结果',
-        'ja': 'これは音声認識のテスト結果です',
-        'ko': '이것은 음성 인식의 테스트 결과입니다',
-        'fr': 'Ceci est un résultat de test de reconnaissance vocale',
-        'de': 'Dies ist ein Testergebnis der Spracherkennung',
-        'es': 'Este es un resultado de prueba de reconocimiento de voz'
-      };
-      
-      const langCode = this.languageList[this.selectedLangIndex].code;
-      this.translatedText = translations[langCode] || translations['en'];
-    },
-    
+        console.log('录音文件路径:', this.tempFilePath);
+
+        if (!this.tempFilePath) {
+            throw new Error('录音文件路径无效');
+        }
+
+        // 方式1：直接使用 UniApp 的文件读取（适用于临时文件）
+        const fileData = await new Promise((resolve, reject) => {
+            plus.io.resolveLocalFileSystemURL(
+                this.tempFilePath,
+                (entry) => {
+                    entry.file((file) => {
+                        const reader = new plus.io.FileReader();
+                        reader.onload = (evt) => {
+                            const base64Data = evt.target.result.split(',')[1]; // 提取纯base64
+                            resolve({ data: base64Data });
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(file);
+                    }, reject);
+                },
+                reject
+            );
+        });
+
+        // 方式2：使用 Native.js（如果方式1失败）
+        // const fileData = await this.readFileNative(this.tempFilePath);
+
+        const targetLang = this.languageList[this.selectedLangIndex].code;
+        
+        const response = await uni.request({
+            url: 'http://zhoujx.com:11454/api/translate/voice',
+            method: 'POST',
+            header: { 'Content-Type': 'application/json' },
+            data: {
+                from: 'auto',
+                to: targetLang,
+                voice: fileData.data,
+                format: 'wav'
+            }
+        });
+
+        const result = response[1].data;
+        if (result.success) {
+            this.originalText = result.originalText;
+            this.originalLanguage = result.originalLanguage;
+            this.translatedText = result.translatedText;
+        } else {
+            throw new Error(result.message || '翻译失败');
+        }
+    } catch (error) {
+        console.error('处理录音出错:', error);
+        uni.showToast({ title: error.message || '处理失败', icon: 'none' });
+    } finally {
+        uni.hideLoading();
+    }
+},
+
+// 方式2：使用 Native.js 读取文件（如果 plus.io 不可用）
+readFileNative(filePath) {
+    return new Promise((resolve, reject) => {
+        if (window.plus && plus.io) {
+            plus.io.resolveLocalFileSystemURL(
+                filePath,
+                (entry) => {
+                    entry.file((file) => {
+                        const reader = new plus.io.FileReader();
+                        reader.onload = (evt) => {
+                            const base64Data = evt.target.result.split(',')[1];
+                            resolve({ data: base64Data });
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    }, reject);
+                },
+                reject
+            );
+        } else {
+            reject(new Error('当前环境不支持文件读取'));
+        }
+    });
+},
+
     onLanguageChange(e) {
       this.selectedLangIndex = e.detail.value;
       this.targetLanguage = this.languageList[this.selectedLangIndex].name;
       
       // 如果有原文，重新翻译
       if (this.originalText) {
-        this.translateText();
+        this.handleRecordingResult({ tempFilePath: this.tempFilePath });
       }
     },
     
@@ -173,6 +238,7 @@ export default {
 }
 </script>
 
+<!-- 样式部分保持不变 -->
 <style lang="scss">
 .container {
   display: flex;

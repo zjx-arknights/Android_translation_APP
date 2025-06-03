@@ -207,6 +207,25 @@ export default {
     
         if (response.data.result) {
           this.translatedText = response.data.result;
+		  
+		   // 保存到翻译历史
+		      const historyItem = {
+		        sourceLang: `${this.sourceLanguageLabel} (${this.sourceLanguage})`,
+		        sourceText: this.inputText,
+		        targetLang: `${this.targetLanguageLabel} (${this.targetLanguage})`,
+		        targetText: response.data.result,
+		        date: new Date().toLocaleString(),
+		        translationType: '手动翻译'
+		      };
+	
+	 // 获取现有历史记录
+	    let history = uni.getStorageSync('translationHistory') || [];
+	    // 添加到历史记录数组开头
+	    history.unshift(historyItem);
+	    // 保存到本地存储
+	    uni.setStorageSync('translationHistory', history);
+	  
+		  
         } else {
           const errorMessages = {
             zh: '未获取到翻译结果',
@@ -236,6 +255,9 @@ export default {
       } finally {
         this.isTranslating = false;
       }
+	  
+	  
+	  
     },
     copyResult() {
       uni.setClipboardData({
