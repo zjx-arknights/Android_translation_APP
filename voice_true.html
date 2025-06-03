@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>录音与翻译</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #audioContainer {
+            margin-top: 20px;
+        }
+
+        #status {
+            margin: 15px 0;
+            font-weight: bold;
+        }
+
+        .result-section {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+        }
+
+        .result-area {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            min-height: 100px;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>录音与翻译</h1>
+    <p>录音格式: 16000Hz, 16bit, 单声道, WAV</p>
+
+    <button id="startBtn">开始录音</button>
+    <button id="stopBtn" disabled>停止录音</button>
+    <button id="sendBtn" disabled>发送到服务器</button>
+
+    <div id="status">准备就绪</div>
+    <div id="loading" class="loading">正在处理，请稍候...</div>
+
+    <div id="audioContainer"></div>
+
+    <div class="result-section">
+        <h2>翻译结果</h2>
+        <div class="result-area" id="result-area"></div>
+    </div>
+
+    <script>
+        // 获取DOM元素
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const status = document.getElementById('status');
+        const loading = document.getElementById('loading');
+        const audioContainer = document.getElementById('audioContainer');
+        const resultArea = document.getElementById('result-area');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let wavBlob = null;
+
+        // 开始录音
+        startBtn.addEventListener('click', async () => {
+            try {
+                status.textContent = "请求麦克风权限...";
+
+                // 更兼容的麦克风获取方式
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
+
+                // 检查是否有音频轨道
+                const audioTracks = stream.getAudioTracks();
+                if (audioTracks.length === 0) {
+                    throw new Error("没有可用的音频输入设备");
+                }
+
+                status.textContent = "录音中...";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                sendBtn.disabled = true;
+                audioChunks = [];
+                resultArea.textContent = "";
+
+                // 创建MediaRecorder实例
+                mediaRecorder = new MediaRecorder(stream);
+
+                // 收集音频数据
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                // 录音停止时的处理
+                mediaRecorder.onstop = async () => {
+                    status.textContent = "处理录音数据...";
+
+                    try {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        wavBlob = await encodeToWav(audioBlob);
+
+                        // 创建下载链接
+                        const audioUrl = URL.createObjectURL(wavBlob);
+
+                        // 显示音频播放器
+                        audioContainer.innerHTML = `
+                            <audio controls src="${audioUrl}"></audio>
+                            <div>
+                                <a href="${audioUrl}" download="recording_${new Date().toISOString().replace(/[:.]/g, '-')}.wav">
+                                    下载录音文件
+                                </a>
+                            </div>
+                        `;
+
+                        status.textContent = "录音完成！可以发送到服务器";
+                        sendBtn.disabled = false;
+                    } catch (error) {
+                        console.error('处理录音数据错误:', error);
+                        status.textContent = `处理错误: ${error.message}`;
+                    }
+
+                    // 关闭麦克风
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                // 开始录音
+                mediaRecorder.start();
+
+                // 每100ms收集一次数据
+                setInterval(() => {
+                    if (mediaRecorder.state === 'recording') {
+                        mediaRecorder.requestData();
+                    }
+                }, 100);
+
+            } catch (error) {
+                console.error('录音错误:', error);
+                status.textContent = `错误: ${error.message}`;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                sendBtn.disabled = true;
+            }
+        });
+
+        // 停止录音
+        stopBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        // 发送录音到服务器
+        sendBtn.addEventListener('click', async () => {
+            if (!wavBlob) {
+                resultArea.innerHTML = '<p style="color: red;">没有可发送的录音文件</p>';
+                return;
+            }
+
+            try {
+                loading.style.display = 'block';
+                resultArea.textContent = '正在发送并处理录音...';
+
+                // 准备FormData
+                const formData = new FormData();
+                formData.append('audio', wavBlob, 'recording.wav');
+                formData.append('from', 'zh');  // 假设源语言是中文
+                formData.append('to', 'en');     // 假设目标语言是英文
+
+                // 发送到后端
+                const apiResponse = await fetch('http://zhoujx.com:11454/api/translate/voice', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                // 先检查响应状态
+                if (!apiResponse.ok) {
+                    // 尝试获取错误信息
+                    let errorMessage = `HTTP错误: ${apiResponse.status}`;
+                    try {
+                        const errorData = await apiResponse.json();
+                        errorMessage = errorData.message || errorMessage;
+                    } catch (e) {
+                        console.log('无法解析错误响应:', e);
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                // 尝试解析JSON
+                let data;
+                try {
+                    data = await apiResponse.json();
+                } catch (e) {
+                    console.error('JSON解析错误:', e);
+                    throw new Error('无效的服务器响应');
+                }
+
+                // 显示结果
+                resultArea.innerHTML = `
+                    <p><strong>状态:</strong> ${data.success ? '成功' : '失败'}</p>
+                    ${data.originalText ? `<p><strong>原始文本 (${data.originalLanguage}):</strong> ${data.originalText}</p>` : ''}
+                    ${data.translatedText ? `<p><strong>翻译结果 (英语):</strong> ${data.translatedText}</p>` : ''}
+                    ${data.message ? `<p><strong>消息:</strong> ${data.message}</p>` : ''}
+                `;
+
+                status.textContent = "处理完成！";
+
+            } catch (error) {
+                resultArea.innerHTML = `<p style="color: red;"><strong>错误:</strong> ${error.message}</p>`;
+                console.error('发送录音失败:', error);
+                status.textContent = "发送录音失败";
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        // 将音频转换为WAV格式
+        async function encodeToWav(audioBlob) {
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // 解码音频数据
+            const audioData = await audioContext.decodeAudioData(arrayBuffer);
+
+            // 创建新的AudioContext以目标采样率
+            const offlineCtx = new OfflineAudioContext(
+                1, // 声道数
+                audioData.length * (16000 / audioData.sampleRate), // 计算新长度
+                16000 // 目标采样率
+            );
+
+            // 创建缓冲区源
+            const source = offlineCtx.createBufferSource();
+            source.buffer = audioData;
+            source.connect(offlineCtx.destination);
+            source.start();
+
+            // 渲染为新的采样率
+            const resampledAudio = await offlineCtx.startRendering();
+
+            // 创建WAV文件
+            const wavBuffer = encodeWAV(resampledAudio);
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        }
+
+        // WAV编码函数
+        function encodeWAV(audioData) {
+            const numChannels = 1; // 单声道
+            const sampleRate = 16000; // 16kHz
+            const bitsPerSample = 16; // 16bit
+            const bytesPerSample = bitsPerSample / 8;
+            const blockAlign = numChannels * bytesPerSample;
+
+            const buffer = new ArrayBuffer(44 + audioData.length * numChannels * bytesPerSample);
+            const view = new DataView(buffer);
+
+            // 写入WAV头部
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + audioData.length * numChannels * bytesPerSample, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); // 子块大小
+            view.setUint16(20, 1, true); // PCM格式
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * blockAlign, true); // 字节率
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, audioData.length * numChannels * bytesPerSample, true);
+
+            // 写入PCM数据
+            const length = audioData.length;
+            const channel = audioData.getChannelData(0);
+            let offset = 44;
+
+            for (let i = 0; i < length; i++) {
+                const sample = Math.max(-1, Math.min(1, channel[i])); // 钳制到[-1, 1]
+                const intSample = sample < 0 ? sample * 32768 : sample * 32767; // 16bit PCM
+                view.setInt16(offset, intSample, true);
+                offset += 2;
+            }
+
+            return buffer;
+        }
+
+        // 辅助函数：写入字符串到DataView
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+    </script>
+</body>
+
+</html>
