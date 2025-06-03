@@ -1,8 +1,10 @@
 ## 软件工程理论与实践课设题目
-
+#### BabelBreak智能翻译app
+- 支持主流语言的文本，语音，图片识别翻译及本地翻译记录存储
 #### 成员
 - zjx
 - wb
 #### 技术栈
 - 前端：vue+uniapp框架
-- 后端：nodejs+java
+- 后端：nodejs+java+mysql
+- 第三方使用百度翻译api及ocr智能识别技术
